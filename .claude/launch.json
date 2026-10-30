@@ -4,7 +4,7 @@
     {
       "name": "pleasefindmealab",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "uvicorn", "app.main:app", "--port", "8000"],
+      "runtimeArgs": ["run", "--env-file", ".env", "uvicorn", "app.main:app", "--port", "8000"],
       "port": 8000
     }
   ]

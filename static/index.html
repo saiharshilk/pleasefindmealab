@@ -4,45 +4,99 @@
   <meta charset="utf-8">
   <title>pleasefindmealab</title>
   <meta name="viewport" content="width=1200">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>pleasefindmealab</h1>
-    <form id="search-form">
-      <input id="q" type="search" placeholder="What do you want to research? e.g. soft robots, EEG brain-computer interfaces" minlength="3" maxlength="200" required autofocus>
-      <select id="country" aria-label="Country">
-        <option value="">Anywhere</option>
-        <option value="US" selected>United States</option>
-        <option value="CA">Canada</option>
-        <option value="GB">United Kingdom</option>
-        <option value="DE">Germany</option>
-        <option value="FR">France</option>
-        <option value="NL">Netherlands</option>
-        <option value="CH">Switzerland</option>
-        <option value="IN">India</option>
-        <option value="SG">Singapore</option>
-        <option value="AU">Australia</option>
-      </select>
-      <select id="years" aria-label="Time window">
-        <option value="2">Last 2 years</option>
-        <option value="3" selected>Last 3 years</option>
-        <option value="5">Last 5 years</option>
-      </select>
-      <button type="submit">Find labs</button>
-    </form>
+  <canvas id="ambient" aria-hidden="true"></canvas>
+
+  <nav class="nav">
+    <a class="logo" href="#top">
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+        <defs>
+          <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#8052ff"/>
+            <stop offset="1" stop-color="#15846e"/>
+          </linearGradient>
+        </defs>
+        <path d="M15 2 L28 26 L2 26 Z" fill="none" stroke="url(#mark)" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M15 11 L21 22 L9 22 Z" fill="#ffb829"/>
+      </svg>
+      <span>pleasefindmealab</span>
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#results-section">Results</a>
+      <a class="pill" href="#top" id="nav-cta">Find a lab</a>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-copy">
+      <h1>Find the lab<br>working on<br>your idea.</h1>
+      <p class="label">Stop cold-emailing at random. Start with the papers.</p>
+      <p class="lede">Type what you want to research. We read the most relevant papers from the last few years and surface the professors actually leading that work.</p>
+
+      <form id="search-form" class="search">
+        <input id="q" type="search" placeholder="soft robots, EEG brain-computer interfaces…" minlength="3" maxlength="200" required autofocus aria-label="Research topic">
+        <button type="submit" class="pill">Find labs</button>
+      </form>
+      <div class="filters">
+        <label>Where
+          <select id="country">
+            <option value="">Anywhere</option>
+            <option value="US" selected>United States</option>
+            <option value="CA">Canada</option>
+            <option value="GB">United Kingdom</option>
+            <option value="DE">Germany</option>
+            <option value="FR">France</option>
+            <option value="NL">Netherlands</option>
+            <option value="CH">Switzerland</option>
+            <option value="IN">India</option>
+            <option value="SG">Singapore</option>
+            <option value="AU">Australia</option>
+          </select>
+        </label>
+        <label>When
+          <select id="years">
+            <option value="2">Last 2 years</option>
+            <option value="3" selected>Last 3 years</option>
+            <option value="5">Last 5 years</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="hero-brain">
+      <canvas id="brain" aria-label="A brain made of research topics. Hover to explore, click one to search it."></canvas>
+      <div id="brain-tips" aria-live="polite"></div>
+      <p class="brain-hint">Hover the brain to explore topics · click one to search it</p>
+    </div>
   </header>
 
-  <main>
-    <section id="results">
-      <p class="hint">Type a research topic to find professors who are leading recent work on it.</p>
-    </section>
+  <section class="results-section" id="results-section" hidden>
+    <div id="results"></div>
     <aside id="detail">
-      <p class="hint">Click a professor to see their profile.</p>
+      <p class="muted">Select a professor to see their profile.</p>
     </aside>
-  </main>
+  </section>
+
+  <section class="how" id="how">
+    <p class="label">How it works</p>
+    <h2>Labs are ranked by who leads the work, not who's famous.</h2>
+    <div class="how-grid">
+      <div><h3>Search</h3><p>Your words are matched against titles and abstracts of journal articles from the last few years, via OpenAlex.</p></div>
+      <div><h3>Credit</h3><p>Each paper credits its senior and corresponding authors, the people who run the lab. Students in the middle don't count.</p></div>
+      <div><h3>Rank</h3><p>More relevant and more recent papers count for more. Pick a country and only labs based there are ranked.</p></div>
+    </div>
+  </section>
 
   <footer>Paper data from <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a> (CC0). A discovery tool, not a ranking.</footer>
+
+  <script src="topics.js"></script>
+  <script src="brain.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
