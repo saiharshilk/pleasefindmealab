@@ -84,10 +84,6 @@ $("#nav-cta").addEventListener("click", (e) => {
   window.scrollTo({ top: 0, behavior: "smooth" });
   $("#q").focus();
 });
-document.querySelector('[data-scroll="how"]').addEventListener("click", (e) => {
-  e.preventDefault();
-  $("#how").scrollIntoView({ behavior: "smooth" });
-});
 
 // ================= Results screen =================
 
