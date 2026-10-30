@@ -12,88 +12,101 @@
 <body>
   <canvas id="ambient" aria-hidden="true"></canvas>
 
-  <nav class="nav">
-    <a class="logo" href="#top">
-      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
-        <defs>
-          <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#8052ff"/>
-            <stop offset="1" stop-color="#15846e"/>
-          </linearGradient>
-        </defs>
-        <path d="M15 2 L28 26 L2 26 Z" fill="none" stroke="url(#mark)" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Shared logo artwork. Kept out of hidden views so the gradient always resolves. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="mark-gradient" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#8052ff"/>
+        <stop offset="1" stop-color="#15846e"/>
+      </linearGradient>
+      <symbol id="mark" viewBox="0 0 30 30">
+        <path d="M15 2 L28 26 L2 26 Z" fill="none" stroke="url(#mark-gradient)" stroke-width="2.5" stroke-linejoin="round"/>
         <path d="M15 11 L21 22 L9 22 Z" fill="#ffb829"/>
-      </svg>
-      <span>pleasefindmealab</span>
-    </a>
-    <div class="nav-links">
-      <a href="#how">How it works</a>
-      <a href="#results-section">Results</a>
-      <a class="pill" href="#top" id="nav-cta">Find a lab</a>
-    </div>
-  </nav>
+      </symbol>
+    </defs>
+  </svg>
 
-  <header class="hero" id="top">
-    <div class="hero-copy">
-      <h1>Find the lab<br>working on<br>your idea.</h1>
-      <p class="label">Stop cold-emailing at random. Start with the papers.</p>
-      <p class="lede">Type what you want to research. We read the most relevant papers from the last few years and surface the professors actually leading that work.</p>
-
-      <form id="search-form" class="search">
-        <input id="q" type="search" placeholder="soft robots, EEG brain-computer interfaces…" minlength="3" maxlength="200" required autofocus aria-label="Research topic">
-        <button type="submit" class="pill">Find labs</button>
-      </form>
-      <div class="filters">
-        <label>Where
-          <select id="country">
-            <option value="">Anywhere</option>
-            <option value="US" selected>United States</option>
-            <option value="CA">Canada</option>
-            <option value="GB">United Kingdom</option>
-            <option value="DE">Germany</option>
-            <option value="FR">France</option>
-            <option value="NL">Netherlands</option>
-            <option value="CH">Switzerland</option>
-            <option value="IN">India</option>
-            <option value="SG">Singapore</option>
-            <option value="AU">Australia</option>
-          </select>
-        </label>
-        <label>When
-          <select id="years">
-            <option value="2">Last 2 years</option>
-            <option value="3" selected>Last 3 years</option>
-            <option value="5">Last 5 years</option>
-          </select>
-        </label>
+  <!-- ================= Home: hero brain ================= -->
+  <div id="home">
+    <nav class="nav">
+      <a class="logo" href="#/"><svg width="30" height="30"><use href="#mark"/></svg><span>pleasefindmealab</span></a>
+      <div class="nav-links">
+        <a href="#how" data-scroll="how">How it works</a>
+        <a class="pill" href="#/" id="nav-cta">Find a lab</a>
       </div>
+    </nav>
+
+    <header class="hero">
+      <div class="hero-copy">
+        <h1>Find the lab<br>working on<br>your idea.</h1>
+        <p class="label">Stop cold-emailing at random. Start with the papers.</p>
+        <p class="lede">Type what you want to research. We read the most relevant papers from the last few years and surface the professors actually leading that work.</p>
+
+        <form id="search-form" class="search">
+          <input id="q" type="search" placeholder="soft robots, EEG brain-computer interfaces…" minlength="3" maxlength="200" required autofocus aria-label="Research topic">
+          <button type="submit" class="pill">Find labs</button>
+        </form>
+        <div class="filters">
+          <label>Where <select id="country" class="country-select"></select></label>
+          <label>When <select id="years" class="years-select"></select></label>
+        </div>
+      </div>
+
+      <div class="hero-brain">
+        <canvas id="brain" aria-label="A brain made of research topics. Hover to explore, drag to spin, scroll to zoom, click a topic to search it."></canvas>
+        <div id="brain-tips" aria-live="polite"></div>
+        <p class="brain-hint">Drag to spin · scroll to zoom · click a topic to search</p>
+      </div>
+    </header>
+
+    <section class="how" id="how">
+      <p class="label">How it works</p>
+      <h2>Labs are ranked by who leads the work, not who's famous.</h2>
+      <div class="how-grid">
+        <div><h3>Search</h3><p>Your words are matched against titles and abstracts of journal articles from the last few years, via OpenAlex.</p></div>
+        <div><h3>Credit</h3><p>Each paper credits its senior and corresponding authors, the people who run the lab. Students in the middle don't count.</p></div>
+        <div><h3>Rank</h3><p>More relevant and more recent papers count for more. Pick a country and only labs based there are ranked.</p></div>
+      </div>
+    </section>
+
+    <footer>Paper data from <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a> (CC0). A discovery tool, not a ranking.</footer>
+  </div>
+
+  <!-- ================= Search results: browse professors ================= -->
+  <div id="search-view" hidden>
+    <header class="sv-bar">
+      <a class="logo" href="#/" title="Back to the brain"><svg width="26" height="26"><use href="#mark"/></svg><span>pleasefindmealab</span></a>
+      <form id="sv-form" class="sv-form">
+        <input id="sv-q" type="search" minlength="3" maxlength="200" required aria-label="Research topic">
+        <select id="sv-country" class="country-select" aria-label="Where"></select>
+        <select id="sv-years" class="years-select" aria-label="When"></select>
+        <button type="submit" class="pill">Search</button>
+      </form>
+    </header>
+
+    <div class="sv-body">
+      <section class="sv-list">
+        <div class="sv-head">
+          <p class="label" id="sv-count">Searching</p>
+          <h2 id="sv-title"></h2>
+          <p class="sv-sub" id="sv-sub"></p>
+          <div class="sv-tools">
+            <input id="sv-filter" type="search" placeholder="Filter by name, school or paper  ( / )" aria-label="Filter professors">
+            <select id="sv-sort" aria-label="Sort">
+              <option value="match">Best match</option>
+              <option value="recent">Most recent</option>
+              <option value="name">Name A–Z</option>
+              <option value="inst">Institution</option>
+            </select>
+          </div>
+        </div>
+        <ol id="sv-rows" class="sv-rows" aria-label="Professors"></ol>
+        <p class="sv-keys"><kbd>↑</kbd><kbd>↓</kbd> browse · <kbd>/</kbd> filter</p>
+      </section>
+
+      <section id="sv-profile" class="sv-profile" aria-live="polite"></section>
     </div>
-
-    <div class="hero-brain">
-      <canvas id="brain" aria-label="A brain made of research topics. Hover to explore, click one to search it."></canvas>
-      <div id="brain-tips" aria-live="polite"></div>
-      <p class="brain-hint">Hover the brain to explore topics · click one to search it</p>
-    </div>
-  </header>
-
-  <section class="results-section" id="results-section" hidden>
-    <div id="results"></div>
-    <aside id="detail">
-      <p class="muted">Select a professor to see their profile.</p>
-    </aside>
-  </section>
-
-  <section class="how" id="how">
-    <p class="label">How it works</p>
-    <h2>Labs are ranked by who leads the work, not who's famous.</h2>
-    <div class="how-grid">
-      <div><h3>Search</h3><p>Your words are matched against titles and abstracts of journal articles from the last few years, via OpenAlex.</p></div>
-      <div><h3>Credit</h3><p>Each paper credits its senior and corresponding authors, the people who run the lab. Students in the middle don't count.</p></div>
-      <div><h3>Rank</h3><p>More relevant and more recent papers count for more. Pick a country and only labs based there are ranked.</p></div>
-    </div>
-  </section>
-
-  <footer>Paper data from <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a> (CC0). A discovery tool, not a ranking.</footer>
+  </div>
 
   <script src="topics.js"></script>
   <script src="brain.js"></script>
