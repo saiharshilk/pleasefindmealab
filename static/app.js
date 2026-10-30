@@ -74,10 +74,16 @@ $("#search-form").addEventListener("submit", (e) => {
   e.preventDefault();
   goSearch($("#q").value, $("#country").value, $("#years").value);
 });
-// Clicking a topic on the brain searches it.
+// Clicking a topic on the brain puts it in the search bar, ready to refine
+// (e.g. "soft robots" → "soft robots for surgery") and search with Enter.
 document.addEventListener("brain:topic", (e) => {
-  $("#q").value = e.detail.topic;
-  goSearch(e.detail.topic, $("#country").value, $("#years").value);
+  const q = $("#q");
+  q.value = e.detail.topic;
+  q.focus({ preventScroll: true });
+  q.setSelectionRange(q.value.length, q.value.length);
+  q.classList.remove("flash");
+  void q.offsetWidth; // restart the animation when clicking topics back to back
+  q.classList.add("flash");
 });
 $("#nav-cta").addEventListener("click", (e) => {
   e.preventDefault();

@@ -109,6 +109,12 @@ h1, h2, h3 { font-weight: 400; margin: 0; }
 }
 .search input::placeholder { color: #5f5f5f; }
 .search input:focus { border-color: var(--iris); }
+/* Brief glow when a brain topic lands in the search bar. */
+.search input.flash { animation: topic-in .9s ease-out; }
+@keyframes topic-in {
+  0% { box-shadow: 0 0 0 0 rgba(128, 82, 255, .7); color: var(--saffron); }
+  100% { box-shadow: 0 0 0 14px rgba(128, 82, 255, 0); color: var(--bone); }
+}
 
 .filters { display: flex; gap: 24px; margin-top: 18px; }
 .filters label { color: var(--ash); font: 600 12px var(--font); text-transform: uppercase; letter-spacing: 0.025em; display: flex; align-items: center; gap: 8px; }
