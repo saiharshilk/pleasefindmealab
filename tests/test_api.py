@@ -116,3 +116,4 @@ def test_homepage_is_served(tmp_path, fake):
     with make_client(tmp_path, fake) as c:
         r = c.get("/")
     assert r.status_code == 200 and "pleasefindmealab" in r.text
+    assert r.headers["cache-control"] == "no-cache"

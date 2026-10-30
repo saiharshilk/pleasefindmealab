@@ -93,7 +93,7 @@
         spin: rand(-0.6, 0.6),
         filled: Math.random() < 0.18,
         delay: Math.random() * 0.9,
-        sx: 0, sy: 0, depth: 0, scale: 1, visible: true,
+        sx: 0, sy: 0, bx: 0, by: 0, depth: 0, scale: 1, visible: true,
       });
     }
     return out;
@@ -184,15 +184,34 @@
     let mouse = null, drag = null, lastMove = 0;
     const local = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 
+    // A visible label under the pointer (people click the words, not just the triangle).
+    function labelAt(clientX, clientY) {
+      for (let i = tips.length - 1; i >= 0; i--) {
+        if (tips[i].dieAt !== Infinity) continue;
+        const r = tips[i].el.getBoundingClientRect();
+        if (clientX >= r.left - 4 && clientX <= r.right + 4 && clientY >= r.top - 4 && clientY <= r.bottom + 4) return tips[i].p.topic;
+      }
+      return null;
+    }
+
     canvas.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0 || !overBrain(local(e))) return;
+      if (e.button !== 0) return;
+      const onLabel = labelAt(e.clientX, e.clientY);
+      if (!onLabel && !overBrain(local(e))) return;
       canvas.setPointerCapture(e.pointerId);
-      drag = { start: local(e), last: local(e), moved: false, t: performance.now() };
+      mouse = local(e);
+      // Remember the topic now: by the time the button comes back up, frames have run
+      // and the hover may have moved on.
+      const under = onLabel ? null : nearestToMouse();
+      const topic = onLabel || (under ? under.topic : null);
+      drag = { start: mouse, last: mouse, moved: false, t: performance.now(), topic };
       spinVel = 0;
       yawGoal = null;
     });
+    let client = null; // pointer in page coordinates, for hit-testing the HTML labels
     canvas.addEventListener("pointermove", (e) => {
       mouse = local(e);
+      client = { x: e.clientX, y: e.clientY };
       if (!drag) return;
       const dx = mouse.x - drag.last.x, dy = mouse.y - drag.last.y;
       if (Math.hypot(mouse.x - drag.start.x, mouse.y - drag.start.y) > 4) drag.moved = true;
@@ -204,14 +223,14 @@
       drag.last = mouse; drag.t = now; lastMove = now;
     });
     canvas.addEventListener("pointerup", () => {
-      if (drag && !drag.moved && hovered && mouse) {
-        document.dispatchEvent(new CustomEvent("brain:topic", { detail: { topic: hovered.topic } }));
+      if (drag && !drag.moved && drag.topic) {
+        document.dispatchEvent(new CustomEvent("brain:topic", { detail: { topic: drag.topic } }));
       }
       // A drag keeps its momentum; one held still before letting go doesn't.
       if (drag && performance.now() - lastMove > 80) spinVel = 0;
       drag = null;
     });
-    canvas.addEventListener("pointerleave", () => { if (!drag) mouse = null; });
+    canvas.addEventListener("pointerleave", () => { if (!drag) { mouse = null; client = null; } });
     canvas.addEventListener("wheel", (e) => {
       const m = local(e);
       if (!overBrain(m)) return;
@@ -320,7 +339,8 @@
       for (const p of particles) {
         if (!p.visible || p.depth < -0.25) continue;
         if (lockedField >= 0 && p.field !== lockedField) continue;
-        const d = (p.sx - mouse.x) ** 2 + (p.sy - mouse.y) ** 2;
+        // Hit-test where the triangle really is, not where it has shied away to.
+        const d = (p.bx - mouse.x) ** 2 + (p.by - mouse.y) ** 2;
         if (d < bestD) { bestD = d; best = p; }
       }
       return best;
@@ -336,9 +356,10 @@
         if (!q) continue;
         for (let dx = -1; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) taken.add(cell(q.sx + dx * 150, q.sy + dy * 22));
       }
-      const seen = new Set();
+      // Skip topics already shown by the hover labels, and keep clear of the nav and legend.
+      const seen = new Set([hovered, ...neighbours].filter(Boolean).map((q) => q.topic));
       const candidates = particles
-        .filter((p) => p.visible && p.depth > 0.1 && (!strong || p.field === focusField))
+        .filter((p) => p.visible && p.depth > 0.1 && p.sy > 100 && p.sy < h - 130 && (!strong || p.field === focusField))
         .sort((a, b) => b.depth - a.depth);
       const out = [];
       for (const p of candidates) {
@@ -426,8 +447,9 @@
         const y1 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
         const persp = 4 / (4 - z2);
         let px = ox + x1 * scaleXY * persp, py = oy - y1 * scaleXY * persp;
+        p.bx = px; p.by = py;
         // Particles shy away from the cursor a little.
-        if (repel && z2 > -0.2) {
+        if (repel && z2 > -0.2 && p !== hovered) {
           const dx = px - mouse.x, dy = py - mouse.y, d2 = dx * dx + dy * dy;
           if (d2 > 0.25 && d2 < repel * repel) {
             const d = Math.sqrt(d2), push = (1 - d / repel) * 12;
@@ -441,8 +463,9 @@
       if (intro >= 1) introDone = true;
 
       if (intro >= 1) {
-        if (mouse && !drag) setHovered(nearestToMouse(), now);
-        else if (drag) setHovered(null, now);
+        // Resting on a label keeps it (and its neighbours) up so it can be clicked.
+        if (mouse && !drag) { if (!(client && labelAt(client.x, client.y))) setHovered(nearestToMouse(), now); }
+        else if (drag) { if (drag.moved) setHovered(null, now); } // a press that hasn't moved keeps its label
         else if (now > autoAt) {
           // Idle tour: light up a front-facing topic every couple of seconds.
           const front = particles.filter((p) => p.depth > 0.45 && p.visible && (lockedField < 0 || p.field === lockedField));
@@ -549,7 +572,7 @@
       }
 
       canvas.style.cursor = drag && drag.moved ? "grabbing"
-        : mouse && hovered ? "pointer"
+        : mouse && (hovered || (client && labelAt(client.x, client.y))) ? "pointer"
         : mouse && overBrain(mouse) ? "grab" : "default";
       requestAnimationFrame(frame);
     }

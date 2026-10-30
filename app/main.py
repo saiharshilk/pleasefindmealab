@@ -63,6 +63,15 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             log.error("OpenAlex call failed: %s", e)
             raise HTTPException(502, "The paper database is having trouble right now. Please try again.")
 
+    @app.middleware("http")
+    async def revalidate_static_files(request: Request, call_next):
+        # Without a Cache-Control header browsers may reuse an old app.js/brain.js for a
+        # while after a deploy. "no-cache" still caches, but checks the ETag first (a cheap 304).
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.get("/api/health")
     async def health():
         return {"ok": True}
