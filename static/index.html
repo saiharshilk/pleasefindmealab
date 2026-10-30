@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>pleasefindmealab</title>
+  <meta name="viewport" content="width=1200">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>pleasefindmealab</h1>
+    <form id="search-form">
+      <input id="q" type="search" placeholder="What do you want to research? e.g. soft robots, EEG brain-computer interfaces" minlength="3" maxlength="200" required autofocus>
+      <select id="country" aria-label="Country">
+        <option value="">Anywhere</option>
+        <option value="US" selected>United States</option>
+        <option value="CA">Canada</option>
+        <option value="GB">United Kingdom</option>
+        <option value="DE">Germany</option>
+        <option value="FR">France</option>
+        <option value="NL">Netherlands</option>
+        <option value="CH">Switzerland</option>
+        <option value="IN">India</option>
+        <option value="SG">Singapore</option>
+        <option value="AU">Australia</option>
+      </select>
+      <select id="years" aria-label="Time window">
+        <option value="2">Last 2 years</option>
+        <option value="3" selected>Last 3 years</option>
+        <option value="5">Last 5 years</option>
+      </select>
+      <button type="submit">Find labs</button>
+    </form>
+  </header>
+
+  <main>
+    <section id="results">
+      <p class="hint">Type a research topic to find professors who are leading recent work on it.</p>
+    </section>
+    <aside id="detail">
+      <p class="hint">Click a professor to see their profile.</p>
+    </aside>
+  </main>
+
+  <footer>Paper data from <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a> (CC0). A discovery tool, not a ranking.</footer>
+  <script src="app.js"></script>
+</body>
+</html>
