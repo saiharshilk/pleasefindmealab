@@ -1,5 +1,7 @@
 /* The hero brain: a slowly rotating 3D cloud of small triangles, one research topic each.
-   Hover a triangle to see its topic and its nearest neighbours; click to search it.
+   It fills the whole first screen behind the text. Hover a triangle to see its topic and
+   its neighbours, click to search it, drag to spin, scroll or double-click to zoom, Esc to
+   reset. Zoomed in, topics get map-style labels. The legend flies to each field's region.
    When nobody is hovering it keeps lighting up topics on its own.
    Also draws the faint drifting triangles behind the whole page (#ambient). */
 (function () {
@@ -10,11 +12,17 @@
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const COUNT = 2200;
   const TAU = Math.PI * 2;
+  // A triangle's other two corners are its first corner rotated by 120° and 240°.
+  const C120 = Math.cos(TAU / 3), S120 = Math.sin(TAU / 3);
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = (arr) => arr[(Math.random() * arr.length) | 0];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+  // Every colour used, so particles can be grouped and drawn one colour at a time.
+  const COLORS = [...new Set([...PALETTE, ...(FIELDS || []).map((f) => f.color)])];
+  const colorIndex = (c) => COLORS.indexOf(c);
 
   // ---------- Geometry: brain-shaped point cloud (x = front, y = up, z = side) ----------
 
@@ -74,11 +82,12 @@
       const field = regionOf(kind, pos);
       const deck = decks[field];
       if (deck.next >= deck.order.length) { deck.order = shuffled(FIELDS[field].topics); deck.next = 0; }
-      const start = randomDirection().map((v) => v * rand(2.5, 5)); // scattered, for the intro
+      const color = Math.random() < 0.7 ? FIELDS[field].color : pick(PALETTE);
       out.push({
-        pos, start, field,
+        pos, field, color,
+        start: randomDirection().map((v) => v * rand(2.5, 5)), // scattered, for the intro
+        ci: colorIndex(color),
         topic: deck.order[deck.next++],
-        color: Math.random() < 0.7 ? FIELDS[field].color : pick(PALETTE),
         size: rand(2.2, 4.6),
         angle: rand(0, TAU),
         spin: rand(-0.6, 0.6),
@@ -90,12 +99,12 @@
     return out;
   }
 
-  function triangle(ctx, x, y, size, angle) {
-    for (let k = 0; k < 3; k++) {
-      const a = angle + (k * TAU) / 3;
-      const px = x + Math.cos(a) * size, py = y + Math.sin(a) * size;
-      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
+  // Adds a triangle to the current path. (ca, sa) = cos/sin of its rotation.
+  function triangle(ctx, x, y, size, ca, sa) {
+    const ax = ca * size, ay = sa * size;
+    ctx.moveTo(x + ax, y + ay);
+    ctx.lineTo(x + ax * C120 - ay * S120, y + ax * S120 + ay * C120);
+    ctx.lineTo(x + ax * C120 + ay * S120, y - ax * S120 + ay * C120);
     ctx.closePath();
   }
 
@@ -103,6 +112,7 @@
 
   const MIN_ZOOM = 1, MAX_ZOOM = 4.5;
   const BASE_SPIN = 0.16;
+  const ALPHA_LEVELS = 10;
 
   function initBrain() {
     const canvas = document.getElementById("brain");
@@ -111,6 +121,7 @@
     if (!canvas || !FIELDS) return;
     const ctx = canvas.getContext("2d");
     const particles = buildParticles();
+    const fieldCi = FIELDS.map((f) => colorIndex(f.color));
 
     // Centre of each field's region, used to fly the camera there from the legend.
     const centroids = FIELDS.map((_, f) => {
@@ -121,7 +132,8 @@
     let w = 0, h = 0, dpr = 1;
     function resize() {
       const r = canvas.getBoundingClientRect();
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // The canvas covers the whole first screen, so cap the pixel ratio to keep fill cost down.
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       w = r.width; h = r.height;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
@@ -129,17 +141,19 @@
     new ResizeObserver(resize).observe(canvas);
     resize();
 
-    // ---- Camera: yaw/pitch from dragging, zoom + pan from the wheel. Targets are eased toward. ----
+    // The brain sits right of the headline and is sized to the screen.
+    const unitSize = () => Math.min(w * 0.2, h * 0.36);
+    const centre = () => ({ x: w * 0.68, y: h * 0.5 });
+
+    // ---- Camera: targets are set by input, the camera eases toward them every frame. ----
     const cam = { yaw: 0, pitch: 0.12, zoom: 1, panX: 0, panY: 0 };
     const target = { zoom: 1, panX: 0, panY: 0 };
     let spinVel = BASE_SPIN;      // rad/s, decays back to BASE_SPIN after a fling
     let lockedField = -1;         // field chosen in the legend
     let yawGoal = null;           // when set, ease yaw here (legend fly-to)
 
-    const unitSize = () => Math.min(w, h) * 0.34;
-    const centre = () => ({ x: w / 2, y: h * 0.42 });
     function clampPan() {
-      const lim = unitSize() * (target.zoom - 1) * 1.1;
+      const lim = unitSize() * (target.zoom - 1) * 1.3;
       target.panX = clamp(target.panX, -lim, lim);
       target.panY = clamp(target.panY, -lim, lim);
     }
@@ -158,13 +172,20 @@
       lockedField = -1; yawGoal = null; spinVel = BASE_SPIN;
       updateLegend();
     }
+    // Only the brain itself (not the empty space around it) grabs drags and the wheel,
+    // so the page still scrolls normally elsewhere.
+    function overBrain(m) {
+      if (cam.zoom > 1.03) return true;
+      const c = centre();
+      return Math.hypot(m.x - c.x - cam.panX, (m.y - c.y - cam.panY) * 1.2) < unitSize() * 1.35;
+    }
 
     // ---- Pointer ----
     let mouse = null, drag = null, lastMove = 0;
     const local = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 
     canvas.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !overBrain(local(e))) return;
       canvas.setPointerCapture(e.pointerId);
       drag = { start: local(e), last: local(e), moved: false, t: performance.now() };
       spinVel = 0;
@@ -179,44 +200,35 @@
       const now = performance.now(), dt = Math.max(1, now - drag.t) / 1000;
       cam.yaw += dx * 0.008;
       cam.pitch = clamp(cam.pitch + dy * 0.006, -1.1, 1.1);
-      spinVel = (dx * 0.008) / dt; // fling speed
+      spinVel = clamp((dx * 0.008) / dt, -6, 6); // fling speed
       drag.last = mouse; drag.t = now; lastMove = now;
     });
     canvas.addEventListener("pointerup", () => {
       if (drag && !drag.moved && hovered && mouse) {
         document.dispatchEvent(new CustomEvent("brain:topic", { detail: { topic: hovered.topic } }));
       }
-      // A drag that ended still keeps its momentum; a held-still release doesn't.
+      // A drag keeps its momentum; one held still before letting go doesn't.
       if (drag && performance.now() - lastMove > 80) spinVel = 0;
       drag = null;
     });
     canvas.addEventListener("pointerleave", () => { if (!drag) mouse = null; });
     canvas.addEventListener("wheel", (e) => {
-      e.preventDefault();
       const m = local(e);
-      zoomAt(m.x, m.y, Math.exp(-e.deltaY * 0.0018));
+      if (!overBrain(m)) return;
+      e.preventDefault();
+      const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // Firefox reports lines
+      zoomAt(m.x, m.y, Math.exp(-px * 0.0022));
     }, { passive: false });
     canvas.addEventListener("dblclick", (e) => {
       const m = local(e);
-      zoomAt(m.x, m.y, target.zoom >= MAX_ZOOM - 0.01 ? 1 / MAX_ZOOM : 2);
+      if (target.zoom >= MAX_ZOOM - 0.01) resetView();
+      else zoomAt(m.x, m.y, 2);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !e.target.matches("input, select, textarea") && host.offsetParent) resetView();
     });
 
-    // ---- Controls: zoom buttons and field legend ----
-    const controls = document.createElement("div");
-    controls.className = "brain-controls";
-    controls.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button>
-      <button type="button" data-z="out" aria-label="Zoom out">−</button>
-      <button type="button" data-z="reset" aria-label="Reset view">⟲</button>`;
-    host.appendChild(controls);
-    controls.addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      const c = centre();
-      if (b.dataset.z === "in") zoomAt(c.x, c.y, 1.6);
-      else if (b.dataset.z === "out") zoomAt(c.x, c.y, 1 / 1.6);
-      else resetView();
-    });
-
+    // ---- Field legend ----
     const legend = document.createElement("div");
     legend.className = "brain-legend";
     legend.innerHTML = FIELDS.map((f, i) =>
@@ -246,6 +258,7 @@
     // ---- Hover labels ----
     let hovered = null;      // particle under the cursor (or the auto-picked one)
     let neighbours = [];
+    let neighbourSet = new Set();
     let autoAt = 0;          // next time the idle tour picks a topic
     const tips = [];         // { el, p, dieAt }
 
@@ -257,7 +270,7 @@
         const field = document.createElement("div");
         field.className = "tip-field";
         field.style.color = FIELDS[p.field].color;
-        field.textContent = FIELDS[p.field].name + " · click to search";
+        field.textContent = FIELDS[p.field].name;
         el.appendChild(field);
       }
       tipsHost.appendChild(el);
@@ -274,28 +287,32 @@
       retireTips(now);
       hovered = p;
       neighbours = [];
-      if (!p) return;
-      // Zooming in makes room for more labels.
-      const want = Math.round(4 + (cam.zoom - 1) * 2.5);
-      const radius = 150 + (cam.zoom - 1) * 40;
-      // Labels sit to the right of their triangle, so overlap is mostly vertical.
-      const placed = [{ x: p.sx, y: p.sy, gap: 36 }];
-      const seen = new Set([p.topic]);
-      const candidates = particles
-        .filter((q) => q !== p && q.visible && q.depth > -0.1 && !seen.has(q.topic))
-        .map((q) => ({ q, d: (q.sx - p.sx) ** 2 + (q.sy - p.sy) ** 2 }))
-        .filter((o) => o.d > 30 * 30 && o.d < radius * radius)
-        .sort((a, b) => a.d - b.d);
-      for (const { q } of candidates) {
-        if (neighbours.length >= want) break;
-        if (seen.has(q.topic)) continue;
-        if (!placed.every((l) => Math.abs(q.sy - l.y) > l.gap || Math.abs(q.sx - l.x) > 220)) continue;
-        neighbours.push(q);
-        seen.add(q.topic);
-        placed.push({ x: q.sx, y: q.sy, gap: 22 });
+      if (p) {
+        // Zooming in makes room for more labels.
+        const want = Math.round(4 + (cam.zoom - 1) * 2.5);
+        const radius = 150 + (cam.zoom - 1) * 40;
+        // Labels sit to the right of their triangle, so overlap is mostly vertical.
+        const placed = [{ x: p.sx, y: p.sy, gap: 36 }];
+        const seen = new Set([p.topic]);
+        const candidates = [];
+        for (const q of particles) {
+          if (q === p || !q.visible || q.depth <= -0.1 || seen.has(q.topic)) continue;
+          const d = (q.sx - p.sx) ** 2 + (q.sy - p.sy) ** 2;
+          if (d > 30 * 30 && d < radius * radius) candidates.push({ q, d });
+        }
+        candidates.sort((a, b) => a.d - b.d);
+        for (const { q } of candidates) {
+          if (neighbours.length >= want) break;
+          if (seen.has(q.topic)) continue;
+          if (!placed.every((l) => Math.abs(q.sy - l.y) > l.gap || Math.abs(q.sx - l.x) > 220)) continue;
+          neighbours.push(q);
+          seen.add(q.topic);
+          placed.push({ x: q.sx, y: q.sy, gap: 22 });
+        }
+        addTip(p, true);
+        for (const q of neighbours) addTip(q, false);
       }
-      addTip(p, true);
-      for (const q of neighbours) addTip(q, false);
+      neighbourSet = new Set(neighbours);
     }
 
     function nearestToMouse() {
@@ -309,6 +326,37 @@
       return best;
     }
 
+    // Map-style labels while zoomed in. Choosing them is the expensive part, so it's done a
+    // few times a second; drawing them at their current positions happens every frame.
+    let mapLabels = [], mapLabelsAt = 0;
+    function chooseMapLabels(focusField, strong) {
+      const taken = new Set();
+      const cell = (x, y) => `${Math.floor(x / 150)},${Math.floor(y / 22)}`;
+      for (const q of [hovered, ...neighbours]) {
+        if (!q) continue;
+        for (let dx = -1; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) taken.add(cell(q.sx + dx * 150, q.sy + dy * 22));
+      }
+      const seen = new Set();
+      const candidates = particles
+        .filter((p) => p.visible && p.depth > 0.1 && (!strong || p.field === focusField))
+        .sort((a, b) => b.depth - a.depth);
+      const out = [];
+      for (const p of candidates) {
+        if (out.length >= 70) break;
+        if (seen.has(p.topic) || p === hovered || neighbourSet.has(p)) continue;
+        const a = cell(p.sx, p.sy), b = cell(p.sx + 150, p.sy);
+        if (taken.has(a) || taken.has(b)) continue;
+        taken.add(a); taken.add(b); seen.add(p.topic);
+        out.push(p);
+      }
+      return out;
+    }
+
+    // Reusable draw buckets: one path per (colour, opacity level), stroked or filled in one call.
+    const nBuckets = COLORS.length * ALPHA_LEVELS;
+    const strokeB = Array.from({ length: nBuckets }, () => []);
+    const fillB = Array.from({ length: nBuckets }, () => []);
+
     let running = true;
     new IntersectionObserver(([entry]) => {
       const was = running;
@@ -317,26 +365,28 @@
     }).observe(canvas);
 
     const t0 = performance.now();
-    let last = t0;
+    let last = t0, introDone = REDUCED;
 
     function frame(now) {
       if (!running) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const t = (now - t0) / 1000;
-      const intro = REDUCED ? 1 : clamp(t / 2.6, 0, 1);
+      const intro = introDone ? 1 : clamp(t / 2.6, 0, 1);
+      // Frame-rate independent easing: the same feel at 60Hz and 120Hz.
+      const ease = (rate) => 1 - Math.exp(-rate * dt);
 
-      // ---- Camera easing ----
+      // ---- Camera ----
       if (yawGoal !== null) {
-        cam.yaw += (yawGoal - cam.yaw) * 0.06;
-        cam.pitch += (0.12 - cam.pitch) * 0.06;
+        cam.yaw += (yawGoal - cam.yaw) * ease(4);
+        cam.pitch += (0.12 - cam.pitch) * ease(4);
       } else if (!drag && !REDUCED) {
         // Free spin; slower while hovering so labels stay readable; flings decay back to it.
-        const base = lockedField >= 0 ? 0 : mouse ? 0.04 : BASE_SPIN;
-        spinVel += (base - spinVel) * Math.min(1, dt * 1.5);
+        const base = lockedField >= 0 ? 0 : mouse && hovered ? 0.04 : BASE_SPIN;
+        spinVel += (base - spinVel) * ease(1.5);
         cam.yaw += spinVel * dt;
       }
-      cam.zoom += (target.zoom - cam.zoom) * 0.12;
+      cam.zoom += (target.zoom - cam.zoom) * ease(9);
 
       const breathe = 1 + 0.012 * Math.sin(t * 1.3);
       const ry = cam.yaw - 0.35, rx = cam.pitch;
@@ -344,51 +394,51 @@
       const unit = unitSize();
       const c = centre();
 
-      function project(v, zoom, panX, panY) {
-        const [x, y, z] = v;
+      // When a field is locked, keep its centre in the middle of the brain's spot.
+      if (lockedField >= 0) {
+        const [x, y, z] = centroids[lockedField];
         const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
         const y1 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
         const persp = 4 / (4 - z2);
-        return {
-          x: c.x + panX + x1 * unit * persp * breathe * zoom,
-          y: c.y + panY - y1 * unit * persp * breathe * zoom,
-          depth: z2, persp,
-        };
+        target.panX = -x1 * unit * persp * breathe * target.zoom;
+        target.panY = y1 * unit * persp * breathe * target.zoom;
       }
+      cam.panX += (target.panX - cam.panX) * ease(9);
+      cam.panY += (target.panY - cam.panY) * ease(9);
 
-      // When a field is locked, keep its centre in the middle of the view.
-      if (lockedField >= 0) {
-        const lp = project(centroids[lockedField], 1, 0, 0);
-        target.panX = (c.x - lp.x) * target.zoom;
-        target.panY = (c.y - lp.y) * target.zoom;
-      }
-      cam.panX += (target.panX - cam.panX) * 0.12;
-      cam.panY += (target.panY - cam.panY) * 0.12;
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
+      const scaleXY = unit * breathe * cam.zoom;
+      const ox = c.x + cam.panX, oy = c.y + cam.panY;
       const repel = mouse && !drag ? 60 : 0;
+      const sizeZoom = Math.sqrt(cam.zoom);
+
       for (const p of particles) {
-        const k = easeOut(clamp(intro * 1.6 - p.delay * 0.6, 0, 1));
-        const pr = project([
-          p.start[0] + (p.pos[0] - p.start[0]) * k,
-          p.start[1] + (p.pos[1] - p.start[1]) * k,
-          p.start[2] + (p.pos[2] - p.start[2]) * k,
-        ], cam.zoom, cam.panX, cam.panY);
-        let sxp = pr.x, syp = pr.y;
+        let x, y, z;
+        if (intro < 1) {
+          const k = easeOut(clamp(intro * 1.6 - p.delay * 0.6, 0, 1));
+          x = p.start[0] + (p.pos[0] - p.start[0]) * k;
+          y = p.start[1] + (p.pos[1] - p.start[1]) * k;
+          z = p.start[2] + (p.pos[2] - p.start[2]) * k;
+        } else {
+          x = p.pos[0]; y = p.pos[1]; z = p.pos[2];
+        }
+        // Rotate around Y (turntable), then X (tilt), then perspective.
+        const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+        const y1 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+        const persp = 4 / (4 - z2);
+        let px = ox + x1 * scaleXY * persp, py = oy - y1 * scaleXY * persp;
         // Particles shy away from the cursor a little.
-        if (repel && pr.depth > -0.2) {
-          const dx = sxp - mouse.x, dy = syp - mouse.y, d = Math.hypot(dx, dy);
-          if (d > 0.5 && d < repel) {
-            const push = (1 - d / repel) * 12;
-            sxp += (dx / d) * push; syp += (dy / d) * push;
+        if (repel && z2 > -0.2) {
+          const dx = px - mouse.x, dy = py - mouse.y, d2 = dx * dx + dy * dy;
+          if (d2 > 0.25 && d2 < repel * repel) {
+            const d = Math.sqrt(d2), push = (1 - d / repel) * 12;
+            px += (dx / d) * push; py += (dy / d) * push;
           }
         }
-        p.sx = sxp; p.sy = syp; p.depth = pr.depth; p.scale = pr.persp * Math.sqrt(cam.zoom);
-        p.visible = p.sx > -20 && p.sx < w + 20 && p.sy > -20 && p.sy < h + 20;
+        p.sx = px; p.sy = py; p.depth = z2; p.scale = persp * sizeZoom;
+        p.visible = px > -20 && px < w + 20 && py > -20 && py < h + 20;
         p.angle += p.spin * dt;
       }
+      if (intro >= 1) introDone = true;
 
       if (intro >= 1) {
         if (mouse && !drag) setHovered(nearestToMouse(), now);
@@ -400,6 +450,9 @@
           autoAt = now + 2400;
         }
       }
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
 
       if (hovered) {
         ctx.lineWidth = 1;
@@ -415,74 +468,89 @@
       // Legend preview beats the lock, which beats the hovered field.
       const focusField = previewField >= 0 ? previewField : lockedField >= 0 ? lockedField : hovered ? hovered.field : -1;
       const strong = previewField >= 0 || lockedField >= 0;
+
+      // Sort particles into colour/opacity buckets, then draw each bucket as one path.
+      for (let i = 0; i < nBuckets; i++) { strokeB[i].length = 0; fillB[i].length = 0; }
       for (const p of particles) {
-        if (!p.visible) continue;
+        if (!p.visible || p === hovered || neighbourSet.has(p)) continue;
         let alpha = clamp(0.18 + 0.82 * ((p.depth + 1.1) / 2.2), 0.08, 1);
         if (focusField >= 0) alpha *= p.field === focusField ? 1.15 : strong ? 0.15 : 0.55;
-        let size = p.size * p.scale;
-        if (p === hovered) size *= 2.6;
-        else if (neighbours.includes(p)) size *= 1.7;
-        ctx.globalAlpha = clamp(alpha, 0, 1);
+        const level = clamp(Math.round(alpha * (ALPHA_LEVELS - 1)), 1, ALPHA_LEVELS - 1);
+        const ci = strong && p.field === focusField ? fieldCi[p.field] : p.ci;
+        const b = ci * ALPHA_LEVELS + level;
+        strokeB[b].push(p);
+        if (p.filled) fillB[b].push(p);
+      }
+      ctx.lineWidth = 1;
+      for (let b = 0; b < nBuckets; b++) {
+        const s = strokeB[b];
+        if (!s.length) continue;
+        ctx.globalAlpha = (b % ALPHA_LEVELS) / (ALPHA_LEVELS - 1);
+        const color = COLORS[(b / ALPHA_LEVELS) | 0];
         ctx.beginPath();
-        triangle(ctx, p.sx, p.sy, size, p.angle);
-        const color = strong && p.field === focusField ? FIELDS[p.field].color : p.color;
-        if (p === hovered || p.filled) { ctx.fillStyle = p === hovered ? FIELDS[p.field].color : color; ctx.fill(); }
+        for (const p of s) triangle(ctx, p.sx, p.sy, p.size * p.scale, Math.cos(p.angle), Math.sin(p.angle));
         ctx.strokeStyle = color;
-        ctx.lineWidth = p === hovered ? 1.6 : 1;
+        ctx.stroke();
+        const f = fillB[b];
+        if (f.length) {
+          ctx.beginPath();
+          for (const p of f) triangle(ctx, p.sx, p.sy, p.size * p.scale, Math.cos(p.angle), Math.sin(p.angle));
+          ctx.fillStyle = color;
+          ctx.fill();
+        }
+      }
+
+      // Highlighted topic and its neighbours on top, larger.
+      for (const p of neighbours) {
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        triangle(ctx, p.sx, p.sy, p.size * p.scale * 1.7, Math.cos(p.angle), Math.sin(p.angle));
+        ctx.strokeStyle = p.color;
         ctx.stroke();
       }
-
-      // Zoomed in, front-facing topics get faint labels, like place names on a map.
-      // A coarse grid keeps them from overlapping each other or the hover labels.
-      if (cam.zoom > 1.8) {
-        const fadeIn = clamp((cam.zoom - 1.8) / 0.8, 0, 1);
-        const taken = new Set();
-        const cell = (x, y) => `${Math.floor(x / 150)},${Math.floor(y / 22)}`;
-        for (const q of [hovered, ...neighbours]) {
-          if (!q) continue;
-          for (let dx = -1; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) taken.add(cell(q.sx + dx * 150, q.sy + dy * 22));
-        }
-        const seen = new Set();
-        const candidates = particles
-          .filter((p) => p.visible && p.depth > 0.1 && (!strong || p.field === focusField))
-          .sort((a, b) => b.depth - a.depth);
-        ctx.font = "400 12px Inter, sans-serif";
-        ctx.textBaseline = "middle";
-        let n = 0;
-        for (const p of candidates) {
-          if (n >= 70) break;
-          if (seen.has(p.topic) || p === hovered || neighbours.includes(p)) continue;
-          const a = cell(p.sx, p.sy), b = cell(p.sx + 150, p.sy);
-          if (taken.has(a) || taken.has(b)) continue;
-          taken.add(a); taken.add(b); seen.add(p.topic); n++;
-          ctx.globalAlpha = fadeIn * clamp(0.25 + p.depth * 0.6, 0.25, 0.8);
-          ctx.fillStyle = "#bdbdbd";
-          ctx.fillText(p.topic, p.sx + 8, p.sy);
-        }
-        ctx.globalAlpha = 1;
-      }
-
       if (hovered) {
+        const col = FIELDS[hovered.field].color;
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        triangle(ctx, hovered.sx, hovered.sy, hovered.size * hovered.scale * 2.6, Math.cos(hovered.angle), Math.sin(hovered.angle));
+        ctx.fillStyle = col; ctx.fill();
+        ctx.lineWidth = 1.6; ctx.strokeStyle = col; ctx.stroke();
+
         const pulse = (now % 1400) / 1400;
         ctx.globalAlpha = 1 - pulse;
-        ctx.strokeStyle = FIELDS[hovered.field].color;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.arc(hovered.sx, hovered.sy, 8 + pulse * 22, 0, TAU);
         ctx.stroke();
       }
+
+      // Zoomed in, front-facing topics get faint labels, like place names on a map.
+      if (cam.zoom > 1.8) {
+        if (now > mapLabelsAt) { mapLabels = chooseMapLabels(focusField, strong); mapLabelsAt = now + 180; }
+        const fadeIn = clamp((cam.zoom - 1.8) / 0.8, 0, 1);
+        ctx.font = "400 12px Inter, sans-serif";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#bdbdbd";
+        for (const p of mapLabels) {
+          if (!p.visible || p.depth < 0) continue;
+          ctx.globalAlpha = fadeIn * clamp(0.25 + p.depth * 0.6, 0.25, 0.8);
+          ctx.fillText(p.topic, p.sx + 8, p.sy);
+        }
+      } else {
+        mapLabels = [];
+      }
       ctx.globalAlpha = 1;
 
-      // Labels follow their triangles as the brain turns.
+      // HTML labels follow their triangles. transform avoids re-laying out the page each frame.
       for (let i = tips.length - 1; i >= 0; i--) {
         const tip = tips[i];
         if (now > tip.dieAt) { tip.el.remove(); tips.splice(i, 1); continue; }
-        tip.el.style.left = tip.p.sx + "px";
-        tip.el.style.top = tip.p.sy + "px";
+        tip.el.style.transform = `translate3d(${(tip.p.sx + 14).toFixed(1)}px, ${tip.p.sy.toFixed(1)}px, 0) translateY(-50%)`;
       }
 
-      canvas.style.cursor = drag && drag.moved ? "grabbing" : mouse && hovered ? "pointer" : "grab";
-      host.classList.toggle("zoomed", cam.zoom > 1.05);
+      canvas.style.cursor = drag && drag.moved ? "grabbing"
+        : mouse && hovered ? "pointer"
+        : mouse && overBrain(mouse) ? "grab" : "default";
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
@@ -499,32 +567,42 @@
       x: Math.random(), y: Math.random(),
       vx: rand(-0.004, 0.004), vy: rand(-0.006, 0.002),
       size: rand(2, 7), angle: rand(0, TAU), spin: rand(-0.3, 0.3),
-      color: pick(PALETTE), alpha: rand(0.12, 0.4),
+      ci: colorIndex(pick(PALETTE)), alpha: rand(0.12, 0.4),
     }));
+    // Group by colour once; alpha varies a little per triangle, so use a few shared levels.
+    for (const b of bits) b.alpha = Math.round(b.alpha * 10) / 10;
     function resize() {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       w = window.innerWidth; h = window.innerHeight;
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     }
     window.addEventListener("resize", resize);
     resize();
+    const groups = new Map();
+    for (const b of bits) {
+      const k = `${b.ci}|${b.alpha}`;
+      if (!groups.has(k)) groups.set(k, { color: COLORS[b.ci], alpha: b.alpha, bits: [] });
+      groups.get(k).bits.push(b);
+    }
     let last = performance.now();
     function frame(now) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      for (const b of bits) {
-        if (!REDUCED) {
-          b.x = (b.x + b.vx * dt + 1) % 1;
-          b.y = (b.y + b.vy * dt + 1) % 1;
-          b.angle += b.spin * dt;
-        }
-        ctx.globalAlpha = b.alpha;
-        ctx.strokeStyle = b.color;
-        ctx.lineWidth = 1;
+      ctx.lineWidth = 1;
+      for (const g of groups.values()) {
+        ctx.globalAlpha = g.alpha;
+        ctx.strokeStyle = g.color;
         ctx.beginPath();
-        triangle(ctx, b.x * w, b.y * h, b.size, b.angle);
+        for (const b of g.bits) {
+          if (!REDUCED) {
+            b.x = (b.x + b.vx * dt + 1) % 1;
+            b.y = (b.y + b.vy * dt + 1) % 1;
+            b.angle += b.spin * dt;
+          }
+          triangle(ctx, b.x * w, b.y * h, b.size, Math.cos(b.angle), Math.sin(b.angle));
+        }
         ctx.stroke();
       }
       ctx.globalAlpha = 1;

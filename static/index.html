@@ -28,6 +28,12 @@
 
   <!-- ================= Home: hero brain ================= -->
   <div id="home">
+    <!-- The brain fills the whole first screen; the nav and headline float above it. -->
+    <div class="brain-layer">
+      <canvas id="brain" aria-label="A brain made of research topics. Hover to explore, drag to spin, scroll to zoom, click a topic to search it."></canvas>
+      <div id="brain-tips" aria-live="polite"></div>
+    </div>
+
     <nav class="nav">
       <a class="logo" href="#/"><svg width="30" height="30"><use href="#mark"/></svg><span>pleasefindmealab</span></a>
       <div class="nav-links">
@@ -50,12 +56,6 @@
           <label>Where <select id="country" class="country-select"></select></label>
           <label>When <select id="years" class="years-select"></select></label>
         </div>
-      </div>
-
-      <div class="hero-brain">
-        <canvas id="brain" aria-label="A brain made of research topics. Hover to explore, drag to spin, scroll to zoom, click a topic to search it."></canvas>
-        <div id="brain-tips" aria-live="polite"></div>
-        <p class="brain-hint">Drag to spin · scroll to zoom · click a topic to search</p>
       </div>
     </header>
 
