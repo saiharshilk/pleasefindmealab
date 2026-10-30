@@ -33,13 +33,14 @@ class FakeOpenAlex:
         return httpx.Response(404, json={})
 
 
-def make_client(tmp_path, fake, limit=30):
+def make_client(tmp_path, fake, limit=30, cache_path=None, trust_proxy_headers=False):
     settings = Settings(
         openalex_api_key="test-key",
         openalex_mailto=None,
-        cache_path=str(tmp_path / "cache.sqlite3"),
+        cache_path=cache_path or str(tmp_path / "cache.sqlite3"),
         cache_ttl_seconds=3600,
         searches_per_hour_per_ip=limit,
+        trust_proxy_headers=trust_proxy_headers,
     )
     return TestClient(create_app(settings, transport=httpx.MockTransport(fake)))
 
@@ -117,3 +118,36 @@ def test_homepage_is_served(tmp_path, fake):
         r = c.get("/")
     assert r.status_code == 200 and "pleasefindmealab" in r.text
     assert r.headers["cache-control"] == "no-cache"
+
+
+def test_starts_and_caches_in_memory_when_cache_file_cannot_be_created(tmp_path, fake):
+    # Vercel's function folder is read-only; this used to crash every request.
+    unwritable = str(tmp_path / "no-such-dir" / "cache.sqlite3")
+    with make_client(tmp_path, fake, cache_path=unwritable) as c:
+        assert c.get("/api/health").status_code == 200
+        c.get("/api/search", params={"q": "soft robots"})
+        assert c.get("/api/search", params={"q": "soft robots"}).json()["cached"] is True
+    assert len(fake.requests) == 1
+
+
+def test_rate_limit_uses_proxy_client_ip_only_when_trusted(tmp_path, fake):
+    def searches(c, ips):
+        return [c.get("/api/search", params={"q": f"topic {i}"}, headers={"x-real-ip": ip}).status_code
+                for i, ip in enumerate(ips)]
+
+    # Behind a proxy, two visitors get their own limits...
+    with make_client(tmp_path, fake, limit=1, trust_proxy_headers=True) as c:
+        assert searches(c, ["1.1.1.1", "2.2.2.2"]) == [200, 200]
+    # ...but without trust, the header is ignored (it could be spoofed).
+    with make_client(tmp_path / "b", fake, limit=1) as c:
+        assert searches(c, ["3.3.3.3", "4.4.4.4"]) == [200, 429]
+
+
+def test_vercel_defaults(monkeypatch):
+    from app.config import load_settings
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.delenv("CACHE_PATH", raising=False)
+    monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)
+    s = load_settings()
+    assert s.cache_path.startswith("/tmp/") and s.trust_proxy_headers is True

@@ -202,8 +202,17 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | `CACHE_PATH` | `cache.sqlite3` | Where cached results live |
 | `CACHE_TTL_SECONDS` | `86400` | How long results are reused |
 | `SEARCHES_PER_HOUR_PER_IP` | `30` | Uncached searches allowed per visitor per hour |
+| `TRUST_PROXY_HEADERS` | on for Vercel | Take the visitor's IP from `X-Real-IP` / `X-Forwarded-For` |
 
-When deploying behind a proxy (Render, Fly, …), start uvicorn with `--proxy-headers --forwarded-allow-ips '*'` so rate limiting sees real client IPs. Only do this when the app is reachable *only* through that proxy.
+### Deploying to Vercel
+
+Import the repo into [Vercel](https://vercel.com/new); it detects FastAPI and deploys with no config. Then, in **Project → Settings → Environment Variables**, add `OPENALEX_API_KEY` and redeploy. Without it, every visitor shares the tiny anonymous budget.
+
+On Vercel the app automatically keeps its cache in `/tmp` (the only writable folder) and rate-limits by the real visitor IP that Vercel passes along. The cache lives per server instance, so it resets now and then; that only costs a few repeat searches.
+
+### Other hosts
+
+When deploying behind a proxy (Render, Fly, …), set `TRUST_PROXY_HEADERS=true`, or start uvicorn with `--proxy-headers --forwarded-allow-ips '*'` so rate limiting sees real client IPs. Only do this when the app is reachable *only* through that proxy.
 
 <br>
 
@@ -218,7 +227,7 @@ pleasefindmealab/
 │   ├── cache.py        SQLite key/value cache with expiry
 │   ├── ratelimit.py    per-IP sliding-window limiter
 │   └── config.py       settings from environment variables
-├── static/
+├── public/             the web page (served by Vercel's CDN, or by the app)
 │   ├── index.html      home (brain) and results screens
 │   ├── brain.js        the 3D topic brain and drifting background, on <canvas>
 │   ├── topics.js       ~160 research topics in 6 fields

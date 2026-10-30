@@ -24,7 +24,9 @@ from app.ratelimit import RateLimiter
 
 log = logging.getLogger("pleasefindmealab")
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+# The web page. Named public/ because that is the folder Vercel serves from its CDN;
+# everywhere else (and as a fallback) this app serves it.
+STATIC_DIR = Path(__file__).resolve().parent.parent / "public"
 PROFESSOR_YEARS = 3
 
 
@@ -34,6 +36,17 @@ def _this_year() -> int:
 
 def _normalize_query(q: str) -> str:
     return re.sub(r"\s+", " ", q).strip()
+
+
+def _client_ip(request: Request, trust_proxy_headers: bool) -> str:
+    # Behind a proxy (Vercel) every request comes from the proxy's address, so the
+    # per-visitor limit would be shared by everyone. The proxy puts the real client
+    # IP in a header; only trust it when we're actually behind one that sets it.
+    if trust_proxy_headers:
+        real = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0]
+        if real.strip():
+            return real.strip()
+    return request.client.host if request.client else "unknown"
 
 
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
@@ -96,7 +109,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             return {**cached, "cached": True}
 
         # Only uncached searches spend OpenAlex budget, so only they count against the limit.
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _client_ip(request, settings.trust_proxy_headers)
         if not request.app.state.limiter.allow(client_ip):
             raise HTTPException(429, "Too many searches. Please wait a bit and try again.")
 
@@ -134,8 +147,12 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         request.app.state.cache.set(key, result)
         return {**result, "cached": False}
 
-    # Last, so /api/* routes win. Serves static/index.html at "/".
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    # Last, so /api/* routes win. Serves public/index.html at "/". If the folder isn't
+    # shipped with the server (a CDN serves it instead), the API still starts.
+    if STATIC_DIR.is_dir():
+        app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    else:
+        log.warning("%s not found; serving the API only", STATIC_DIR)
     return app
 
 

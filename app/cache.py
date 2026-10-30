@@ -5,24 +5,37 @@ the TTL are answered from here instead of spending budget again.
 """
 
 import json
+import logging
 import sqlite3
 import threading
 import time
 from typing import Any
+
+log = logging.getLogger("pleasefindmealab")
 
 
 class Cache:
     def __init__(self, path: str, ttl_seconds: int):
         self._ttl = ttl_seconds
         self._lock = threading.Lock()
-        self._db = sqlite3.connect(path, check_same_thread=False)
-        self._db.execute(
+        try:
+            self._db = self._open(path)
+        except sqlite3.OperationalError as e:
+            # A cache is an optimisation, never a reason not to start (e.g. a read-only disk).
+            log.warning("Cache file %s unusable (%s); caching in memory instead", path, e)
+            self._db = self._open(":memory:")
+
+    @staticmethod
+    def _open(path: str) -> sqlite3.Connection:
+        db = sqlite3.connect(path, check_same_thread=False)
+        db.execute(
             "CREATE TABLE IF NOT EXISTS cache ("
             " key TEXT PRIMARY KEY,"
             " value TEXT NOT NULL,"
             " expires_at REAL NOT NULL)"
         )
-        self._db.commit()
+        db.commit()
+        return db
 
     def get(self, key: str) -> Any | None:
         with self._lock:
